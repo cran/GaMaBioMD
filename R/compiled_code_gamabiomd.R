@@ -1150,3 +1150,749 @@ clustering_average_similarity <- function(similarity_matrix, num_clusters_option
               Cluster_SampleID_Percentage = Cluster_SampleID_Percentage,
               Cluster_TotalPercentage = Cluster_TotalPercentage))
 }
+#' Perform Hierarchical Clustering for Percent Similarity
+#'
+#' This function performs hierarchical clustering based on a percent similarity matrix and provides additional information
+#' such as a colored dendrogram, clustered data, sample percentage within clusters, and total percentage for each cluster.
+#'
+#' @param similarity_matrix A matrix containing percent similarity values between SampleIDs.
+#' @param num_clusters_option The desired number of clusters. Default is 10.
+#' @param cut_height_option The height at which the dendrogram should be cut to obtain clusters. Default is 0.2.
+#' @param add_to_final_data A logical value indicating whether to add the clustering results to the final data. Default is TRUE.
+#'
+#' @return A list containing the dendrogram, clustered data, sample percentage within clusters, and total percentage for each cluster.
+#' @export
+#'
+#' @examples
+#' \donttest{
+#' accession_ranges <- list(
+#'   SRU1 = "AJ240966 to AJ240970",
+#'   STU2 = "AB015240 to AB015245",
+#'   WPU13 = "L11934 to L11939",
+#'   INU20 = c("AF277467 to AF277470", "AF333080 to AF333085")
+#' )
+#'
+#' # Use the function to expand accession ranges
+#' sam_acc <- expand_accession_ranges(accession_ranges)
+#' print(sam_acc)
+#'
+#' # 2 get_sequence_information
+#' accessions_to_query <- sam_acc$accession
+#' seq_info <- get_sequence_information(accessions_to_query, remove_dot_1 = TRUE)
+#' print(seq_info)
+#' result <- preprocess_for_alignment(sam_acc, seq_info)
+#'
+#' # Access the resulting data frames
+#' merged_data <- result$merged_data
+#' main_data <- result$main_data
+#' final_data <- result$final_data
+#'
+#' # If you want to sample 10% from each SampleID group:
+#' sampled_data <- data_sampling(final_data, sample_proportion = 0.1)
+#'
+#' alignment_results <- alignment_info(final_data, type = "global", verbose = 1)
+#'
+#' # Access the resulting data frames
+#' score_matrix <- alignment_results$score_matrix
+#' normalized_score_matrix <- alignment_results$normalized_score_matrix
+#'
+#' total_aligned_positions_matrix <- alignment_results$total_aligned_positions_matrix
+#' number_of_matching_positions_matrix <- alignment_results$number_of_matching_positions_matrix
+#'
+#' percent_similarity_matrix <- alignment_results$percent_similarity_matrix
+#'
+#' alignment_results_list <- alignment_results$alignment_results_list
+#'
+#' alignment_info_matrix <- alignment_results$alignment_info_matrix
+#'
+#' output_directory <- tempdir()
+#'
+#' # Save the list of alignment results to an RDS file
+#' saveRDS(alignment_results_list, file.path(output_directory, "alignment_results_list.rds"))
+#'
+#' # Save matrices to files
+#' write.table(score_matrix, file.path(output_directory, "score_matrix.txt"), sep = "\t")
+#' average_percent_similarity <- compute_average_similarity_matrix(percent_similarity_matrix)
+#' print(average_percent_similarity)
+#'
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' clustering_result <- clustering_percent_similarity(percent_similarity_matrix)
+#'
+#' # Extract the dendrogram and clustered data
+#' dend_colored <- clustering_result$dendrogram
+#' clustered_data <- clustering_result$clustered_data
+#' Cluster_SampleID_Percentage <- clustering_result$Cluster_SampleID_Percentage
+#' Cluster_TotalPercentage <- clustering_result$Cluster_TotalPercentage
+#'
+#' tiff_file <- file.path(output_directory, "6. hierarchical_clustering_dendrogram_colored.tiff")
+#'
+#' # Save the dendrogram as a TIFF image
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#' plot(dend_colored, main = "Colored Hierarchical Clustering Dendrogram")
+#' dev.off()
+#'
+#' # Save the clustered data frame to a CSV file
+#' write.csv(clustered_data, file.path(output_directory, "7. clustered_data.csv"), row.names = FALSE)
+#' }
+#' @rdname K.clustering_percent_similarity
+#' @order 11
+clustering_percent_similarity <- function(similarity_matrix, num_clusters_option = 10, cut_height_option = 0.2, add_to_final_data = TRUE) {
+
+  similarity_matrix <- as.matrix(similarity_matrix)
+
+  # Check if num_clusters_option is greater than the number of rows or columns
+  if (num_clusters_option > nrow(similarity_matrix) || num_clusters_option > ncol(similarity_matrix)) {
+    num_clusters_option <- min(nrow(similarity_matrix), ncol(similarity_matrix))
+  }
+
+  # Perform hierarchical clustering using the similarity matrix
+  hc <- hclust(as.dist(1 - similarity_matrix), method = "complete")
+
+  # Create a dendrogram object
+  dend <- as.dendrogram(hc)
+
+  # Option 1: Cut the dendrogram to obtain clusters based on the number of clusters
+  clusters_option <- cutree(hc, k = num_clusters_option)
+
+  # Option 2: Cut the dendrogram to obtain clusters based on a specified height
+  clusters_height <- cutree(hc, h = cut_height_option)
+
+  # Choose between options based on your preference
+  if (length(unique(clusters_option)) < length(unique(clusters_height))) {
+    clusters <- clusters_option
+    num_clusters <- length(unique(clusters_option))
+  } else {
+    clusters <- clusters_height
+    num_clusters <- length(unique(clusters_height))
+  }
+
+  # Add color to the dendrogram based on clusters
+  dend_colored <- color_branches(dend, k = num_clusters)
+
+  # Determine which data frame to update based on the parameter
+  if (add_to_final_data) {
+    # Ensure that Clusters and Percentage columns exist and are initialized
+    if (!("Clusters" %in% names(final_data))) {
+      final_data$Clusters <- NA  # Initialize with some default value or appropriate logic
+    }
+
+    if (!("Percentage" %in% names(final_data))) {
+      final_data$Percentage <- NA  # Initialize with some default value or appropriate logic
+    }
+    clustered_data <- final_data
+  } else {
+    # Ensure that Clusters and Percentage columns exist and are initialized
+    if (!("Clusters" %in% names(sampled_data))) {
+      sampled_data$Clusters <- NA  # Initialize with some default value or appropriate logic
+    }
+
+    if (!("Percentage" %in% names(sampled_data))) {
+      sampled_data$Percentage <- NA  # Initialize with some default value or appropriate logic
+    }
+    clustered_data <- sampled_data
+  }
+
+  Clusters <- clustered_data$Clusters
+  SampleID <- clustered_data$SampleID
+  Percentage <- clustered_data$Percentage
+
+  # Arrange clustered_data based on the "Clusters" column
+  clustered_data <- clustered_data %>%
+    arrange(Clusters)
+
+  # Calculate the percentage and add a new column
+  Cluster_SampleID_Percentage <- clustered_data %>%
+    group_by(Clusters, SampleID) %>%
+    mutate(Percentage = n() / nrow(clustered_data) * 100) %>%
+    arrange(Clusters)
+
+  # Create a new data frame with Cluster, SampleID, and Percentage columns
+  Cluster_SampleID_Percentage <- Cluster_SampleID_Percentage %>%
+    select(Clusters, SampleID, Percentage) %>%
+    distinct() %>%
+    arrange(Clusters)
+
+  # Create a new data frame with Cluster, SampleID, and Percentage columns
+  Cluster_TotalPercentage <- Cluster_SampleID_Percentage %>%
+    select(Clusters, SampleID, Percentage) %>%
+    distinct() %>%  # Remove duplicate rows, assuming the same combination appears multiple times
+    arrange(Clusters) %>%  # Order the data frame based on the Clusters column
+    group_by(Clusters) %>%  # Group by Clusters
+    summarize(Total_Percentage = sum(Percentage))  # Calculate the total percentage for each cluster
+
+  # Return the dendrogram, clustered data, and additional data frames
+  return(list(dendrogram = dend_colored,
+              clustered_data = clustered_data,  # Return the arranged clustered_data
+              Cluster_SampleID_Percentage = Cluster_SampleID_Percentage,
+              Cluster_TotalPercentage = Cluster_TotalPercentage))
+}
+#' Bubble Plot Count Function
+#'
+#' This function generates a bubble plot using ggplot2.
+#'
+#' @param clustered_data A data frame containing clustered data.
+#' @param title The title of the plot.
+#' @param x_label The label for the x-axis.
+#' @param y_label The label for the y-axis.
+#' @param size_label The label for the size variable.
+#' @param color_label The label for the color variable.
+#'
+#' @return A ggplot object representing the bubble plot.
+#' @export
+#'
+#' @examples
+#' \donttest{
+#' accession_ranges <- list(
+#'   SRU1 = "AJ240966 to AJ240970",
+#'   STU2 = "AB015240 to AB015245",
+#'   WPU13 = "L11934 to L11939",
+#'   INU20 = c("AF277467 to AF277470", "AF333080 to AF333085")
+#' )
+#'
+#' # Use the function to expand accession ranges
+#' sam_acc <- expand_accession_ranges(accession_ranges)
+#' print(sam_acc)
+#'
+#' # 2 get_sequence_information
+#' accessions_to_query <- sam_acc$accession
+#' seq_info <- get_sequence_information(accessions_to_query, remove_dot_1 = TRUE)
+#' print(seq_info)
+#' result <- preprocess_for_alignment(sam_acc, seq_info)
+#'
+#' # Access the resulting data frames
+#' merged_data <- result$merged_data
+#' main_data <- result$main_data
+#' final_data <- result$final_data
+#'
+#' # If you want to sample 10% from each SampleID group:
+#' sampled_data <- data_sampling(final_data, sample_proportion = 0.1)
+#'
+#' alignment_results <- alignment_info(final_data, type = "global", verbose = 1)
+#'
+#' # Access the resulting data frames
+#' score_matrix <- alignment_results$score_matrix
+#' normalized_score_matrix <- alignment_results$normalized_score_matrix
+#'
+#' total_aligned_positions_matrix <- alignment_results$total_aligned_positions_matrix
+#' number_of_matching_positions_matrix <- alignment_results$number_of_matching_positions_matrix
+#'
+#' percent_similarity_matrix <- alignment_results$percent_similarity_matrix
+#'
+#' alignment_results_list <- alignment_results$alignment_results_list
+#'
+#' alignment_info_matrix <- alignment_results$alignment_info_matrix
+#'
+#' output_directory <- tempdir()
+#'
+#' # Save the list of alignment results to an RDS file
+#' saveRDS(alignment_results_list, file.path(output_directory, "alignment_results_list.rds"))
+#'
+#' # Save matrices to files
+#' write.table(score_matrix, file.path(output_directory, "score_matrix.txt"), sep = "\t")
+#' average_percent_similarity <- compute_average_similarity_matrix(percent_similarity_matrix)
+#' print(average_percent_similarity)
+#'
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' clustering_result <- clustering_average_similarity(average_percent_similarity)
+#'
+#' # Extract the dendrogram and clustered data
+#' dend_colored <- clustering_result$dendrogram
+#' clustered_data <- clustering_result$clustered_data
+#' Cluster_SampleID_Percentage <- clustering_result$Cluster_SampleID_Percentage
+#' Cluster_TotalPercentage <- clustering_result$Cluster_TotalPercentage
+#'
+#' tiff_file <- file.path(output_directory, "6. hierarchical_clustering_dendrogram_colored.tiff")
+#'
+#' # Save the dendrogram as a TIFF image
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#' plot(dend_colored, main = "Colored Hierarchical Clustering Dendrogram")
+#' dev.off()
+#'
+#' # Save the clustered data frame to a CSV file
+#' write.csv(clustered_data, file.path(output_directory, "7. clustered_data.csv"), row.names = FALSE)
+#'
+#' # Example usage with clustered_data
+#' clustered_data <- clustered_data # Load or generate your clustered data
+#' bubble_plot_count <- bubble_plot_count(clustered_data = clustered_data,
+#'                                       title = "Bubble Plot of Clusters",
+#'                                       x_label = "Clusters",
+#'                                       y_label = "Sample ID",
+#'                                       size_label = "Count",
+#'                                       color_label = "Sample ID")
+#'
+#' # Save the bubble plot as a TIFF image
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' # Set the file name for the TIFF image
+#' tiff_file <- file.path(output_directory, "bubble_plot_count.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Print and save the bubble plot
+#' print(bubble_plot_count)
+#'
+#' # Close the TIFF device
+#' dev.off()
+#' }
+#' @importFrom ggplot2 aes
+#' @rdname L.bubble_plot_count
+#' @order 12
+bubble_plot_count <- function(clustered_data, title, x_label, y_label, size_label, color_label) {
+
+  Clusters <- clustered_data$Clusters
+  SampleID <- clustered_data$SampleID
+
+  # Compute count using dplyr::count
+  count_data <- clustered_data %>%
+    count(Clusters, SampleID, name = "Count")
+
+  Count <- count_data$Count
+
+  # Merge the count_data back to clustered_data
+  clustered_data <- merge(clustered_data, count_data, by = c("Clusters", "SampleID"), all.x = TRUE)
+
+  # Create the plot
+  plot <- ggplot(clustered_data, aes(x = as.factor(Clusters), y = SampleID, size = Count, color = as.factor(SampleID))) +
+    geom_count() +
+    labs(title = title,
+         x = x_label,
+         y = y_label,
+         size = size_label,
+         color = color_label) +
+    theme_minimal()
+
+  return(plot)
+}
+#' Bubble Plot Percentage Function
+#'
+#' This function generates a bubble plot using ggplot2 based on percentage data.
+#'
+#' @param Cluster_SampleID_Percentage A data frame containing cluster, sample ID, and percentage data.
+#' @param title The title of the plot.
+#' @param x_label The label for the x-axis.
+#' @param y_label The label for the y-axis.
+#' @param size_label The label for the size variable.
+#' @param color_label The label for the color variable.
+#'
+#' @return A ggplot object representing the bubble plot.
+#' @export
+#'
+#' @examples
+#' \donttest{
+#' accession_ranges <- list(
+#'   SRU1 = "AJ240966 to AJ240970",
+#'   STU2 = "AB015240 to AB015245",
+#'   WPU13 = "L11934 to L11939",
+#'   INU20 = c("AF277467 to AF277470", "AF333080 to AF333085")
+#' )
+#'
+#' # Use the function to expand accession ranges
+#' sam_acc <- expand_accession_ranges(accession_ranges)
+#' print(sam_acc)
+#'
+#' # 2 get_sequence_information
+#' accessions_to_query <- sam_acc$accession
+#' seq_info <- get_sequence_information(accessions_to_query, remove_dot_1 = TRUE)
+#' print(seq_info)
+#' result <- preprocess_for_alignment(sam_acc, seq_info)
+#'
+#' # Access the resulting data frames
+#' merged_data <- result$merged_data
+#' main_data <- result$main_data
+#' final_data <- result$final_data
+#'
+#' # If you want to sample 10% from each SampleID group:
+#' sampled_data <- data_sampling(final_data, sample_proportion = 0.1)
+#'
+#' alignment_results <- alignment_info(final_data, type = "global", verbose = 1)
+#'
+#' # Access the resulting data frames
+#' score_matrix <- alignment_results$score_matrix
+#' normalized_score_matrix <- alignment_results$normalized_score_matrix
+#'
+#' total_aligned_positions_matrix <- alignment_results$total_aligned_positions_matrix
+#' number_of_matching_positions_matrix <- alignment_results$number_of_matching_positions_matrix
+#'
+#' percent_similarity_matrix <- alignment_results$percent_similarity_matrix
+#'
+#' alignment_results_list <- alignment_results$alignment_results_list
+#'
+#' alignment_info_matrix <- alignment_results$alignment_info_matrix
+#'
+#' output_directory <- tempdir()
+#'
+#' # Save the list of alignment results to an RDS file
+#' saveRDS(alignment_results_list, file.path(output_directory, "alignment_results_list.rds"))
+#'
+#' # Save matrices to files
+#' write.table(score_matrix, file.path(output_directory, "score_matrix.txt"), sep = "\t")
+#' average_percent_similarity <- compute_average_similarity_matrix(percent_similarity_matrix)
+#' print(average_percent_similarity)
+#'
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' clustering_result <- clustering_percent_similarity(percent_similarity_matrix)
+#'
+#' # Extract the dendrogram and clustered data
+#' dend_colored <- clustering_result$dendrogram
+#' clustered_data <- clustering_result$clustered_data
+#' Cluster_SampleID_Percentage <- clustering_result$Cluster_SampleID_Percentage
+#' Cluster_TotalPercentage <- clustering_result$Cluster_TotalPercentage
+#'
+#' tiff_file <- file.path(output_directory, "6. hierarchical_clustering_dendrogram_colored.tiff")
+#'
+#' # Save the dendrogram as a TIFF image
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#' plot(dend_colored, main = "Colored Hierarchical Clustering Dendrogram")
+#' dev.off()
+#'
+#' # Save the clustered data frame to a CSV file
+#' write.csv(clustered_data, file.path(output_directory, "7. clustered_data.csv"), row.names = FALSE)
+#'
+#' # Example usage with Cluster_SampleID_Percentage
+#' Cluster_SampleID_Percentage <- Cluster_SampleID_Percentage
+#' bubble_plot_percentage <- bubble_plot_percentage(Cluster_SampleID_Percentage,
+#'                                                 title = "Bubble Plot",
+#'                                                 x_label = "Clusters",
+#'                                                 y_label = "Sample ID",
+#'                                                 size_label = "Percentage",
+#'                                                 color_label = "Sample ID")
+#'
+#' # Save the bubble plot as a TIFF image
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' # Set the file name for the TIFF image
+#' tiff_file <- file.path(output_directory, "bubble_plot_percentage.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Print and save the bubble plot
+#' print(bubble_plot_percentage)
+#'
+#' # Close the TIFF device
+#' dev.off()
+#' }
+#' @rdname M.bubble_plot_percentage
+#' @order 13
+bubble_plot_percentage <- function(Cluster_SampleID_Percentage, title, x_label, y_label, size_label, color_label) {
+
+  Clusters <- Cluster_SampleID_Percentage$Clusters
+  SampleID <- Cluster_SampleID_Percentage$SampleID
+  Percentage <- Cluster_SampleID_Percentage$Percentage
+
+  plot <- ggplot(Cluster_SampleID_Percentage, aes(x = as.factor(Clusters), y = SampleID, size = Percentage, color = as.factor(SampleID))) +
+    geom_count() +
+    labs(title = title,
+         x = x_label,
+         y = y_label,
+         size = size_label,
+         color = color_label) +
+    theme_minimal()
+
+  return(plot)
+}
+#' Generate Phylogenetic Tree and Color Palette for Average Similarity
+#'
+#' This function generates a Neighbor-Joining phylogenetic tree and a color palette based on the average similarity matrix.
+#'
+#' @param similarity_matrix A matrix containing pairwise similarities between samples.
+#'
+#' @return A list containing the phylogenetic tree and a color palette.
+#' @export
+#' @importFrom ape nj
+#' @importFrom stats dist
+#' @importFrom grDevices rainbow
+#' @examples
+#' \donttest{
+#' accession_ranges <- list(
+#'   SRU1 = "AJ240966 to AJ240970",
+#'   STU2 = "AB015240 to AB015245",
+#'   WPU13 = "L11934 to L11939",
+#'   INU20 = c("AF277467 to AF277470", "AF333080 to AF333085")
+#' )
+#'
+#' # Use the function to expand accession ranges
+#' sam_acc <- expand_accession_ranges(accession_ranges)
+#' print(sam_acc)
+#'
+#' # 2 get_sequence_information
+#' accessions_to_query <- sam_acc$accession
+#' seq_info <- get_sequence_information(accessions_to_query, remove_dot_1 = TRUE)
+#' print(seq_info)
+#' result <- preprocess_for_alignment(sam_acc, seq_info)
+#'
+#' # Access the resulting data frames
+#' merged_data <- result$merged_data
+#' main_data <- result$main_data
+#' final_data <- result$final_data
+#'
+#' # If you want to sample 10% from each SampleID group:
+#' sampled_data <- data_sampling(final_data, sample_proportion = 0.1)
+#'
+#' alignment_results <- alignment_info(final_data, type = "global", verbose = 1)
+#'
+#' # Access the resulting data frames
+#' score_matrix <- alignment_results$score_matrix
+#' normalized_score_matrix <- alignment_results$normalized_score_matrix
+#'
+#' total_aligned_positions_matrix <- alignment_results$total_aligned_positions_matrix
+#' number_of_matching_positions_matrix <- alignment_results$number_of_matching_positions_matrix
+#'
+#' percent_similarity_matrix <- alignment_results$percent_similarity_matrix
+#'
+#' alignment_results_list <- alignment_results$alignment_results_list
+#'
+#' alignment_info_matrix <- alignment_results$alignment_info_matrix
+#'
+#' output_directory <- tempdir()
+#'
+#' # Save the list of alignment results to an RDS file
+#' saveRDS(alignment_results_list, file.path(output_directory, "alignment_results_list.rds"))
+#'
+#' # Save matrices to files
+#' write.table(score_matrix, file.path(output_directory, "score_matrix.txt"), sep = "\t")
+#' average_percent_similarity <- compute_average_similarity_matrix(percent_similarity_matrix)
+#' print(average_percent_similarity)
+#'
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' clustering_result <- clustering_average_similarity(average_percent_similarity)
+#'
+#' # Extract the dendrogram and clustered data
+#' dend_colored <- clustering_result$dendrogram
+#' clustered_data <- clustering_result$clustered_data
+#' Cluster_SampleID_Percentage <- clustering_result$Cluster_SampleID_Percentage
+#' Cluster_TotalPercentage <- clustering_result$Cluster_TotalPercentage
+#'
+#' tiff_file <- file.path(output_directory, "6. hierarchical_clustering_dendrogram_colored.tiff")
+#'
+#' # Save the dendrogram as a TIFF image
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#' plot(dend_colored, main = "Colored Hierarchical Clustering Dendrogram")
+#' dev.off()
+#'
+#' # Save the clustered data frame to a CSV file
+#' write.csv(clustered_data, file.path(output_directory, "7. clustered_data.csv"), row.names = FALSE)
+#'
+#' # Example usage with similarity_matrix
+#' result <- tree_average_similarity(average_percent_similarity)
+#' tree <- result$tree
+#' color_palette <- result$color_palette
+#'
+#' output_directory <- tempdir()
+#'
+#' tree_newick <- file.path(output_directory, "phylogenetic_tree_nj.nwk")
+#'
+#' # Save the phylogenetic tree as a Newick file
+#' # ape::write.tree(tree, file = tree_newick)
+#'
+#' # Save the phylogenetic tree as a TIFF image
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' # Set the file name for the TIFF image
+#' tiff_file <- file.path(output_directory, "phylogenetic_tree.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Plot the phylogenetic tree vertically
+#' plot(tree, main = "Neighbor-Joining Tree", cex = 1, direction = "downward")
+#'
+#' # Close the TIFF device
+#' dev.off()
+#'
+#' # Set the file name for the TIFF image with rainbow-colored branches
+#' tiff_file_rainbow <- file.path(output_directory, "phylogenetic_tree_rainbow.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file_rainbow, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Plot the phylogenetic tree vertically with rainbow-colored branches
+#' plot(tree, main = "NJ Tree", cex = 1, direction = "downward", tip.color = color_palette)
+#'
+#' # Close the TIFF device
+#' dev.off()
+#' }
+#' @rdname N.tree_average_similarity
+#' @order 14
+tree_average_similarity <- function(similarity_matrix) {
+  # Create neighbor-joining tree
+  tree <- nj(dist(as.matrix(1 - similarity_matrix)))
+
+  # Generate a color palette based on the number of tips in the tree
+  num_tips <- length(tree$tip.label)
+  color_palette <- rainbow(num_tips)
+
+  # Return the tree and color palette
+  return(list(tree = tree, color_palette = color_palette))
+}
+#' Generate Phylogenetic Tree and Color Palette for Percent Similarity Matrix
+#'
+#' This function generates a Neighbor-Joining phylogenetic tree and a color palette based on the percent similarity matrix.
+#'
+#' @param percent_similarity_matrix A matrix containing pairwise percent similarities between samples.
+#'
+#' @return A list containing the phylogenetic tree and a color palette.
+#' @export
+#'
+#' @examples
+#' \donttest{
+#' accession_ranges <- list(
+#'   SRU1 = "AJ240966 to AJ240970",
+#'   STU2 = "AB015240 to AB015245",
+#'   WPU13 = "L11934 to L11939",
+#'   INU20 = c("AF277467 to AF277470", "AF333080 to AF333085")
+#' )
+#'
+#' # Use the function to expand accession ranges
+#' sam_acc <- expand_accession_ranges(accession_ranges)
+#' print(sam_acc)
+#'
+#' # 2 get_sequence_information
+#' accessions_to_query <- sam_acc$accession
+#' seq_info <- get_sequence_information(accessions_to_query, remove_dot_1 = TRUE)
+#' print(seq_info)
+#' result <- preprocess_for_alignment(sam_acc, seq_info)
+#'
+#' # Access the resulting data frames
+#' merged_data <- result$merged_data
+#' main_data <- result$main_data
+#' final_data <- result$final_data
+#'
+#' # If you want to sample 10% from each SampleID group:
+#' sampled_data <- data_sampling(final_data, sample_proportion = 0.1)
+#'
+#' alignment_results <- alignment_info(final_data, type = "global", verbose = 1)
+#'
+#' # Access the resulting data frames
+#' score_matrix <- alignment_results$score_matrix
+#' normalized_score_matrix <- alignment_results$normalized_score_matrix
+#'
+#' total_aligned_positions_matrix <- alignment_results$total_aligned_positions_matrix
+#' number_of_matching_positions_matrix <- alignment_results$number_of_matching_positions_matrix
+#'
+#' percent_similarity_matrix <- alignment_results$percent_similarity_matrix
+#'
+#' alignment_results_list <- alignment_results$alignment_results_list
+#'
+#' alignment_info_matrix <- alignment_results$alignment_info_matrix
+#'
+#' output_directory <- tempdir()
+#'
+#' # Save the list of alignment results to an RDS file
+#' saveRDS(alignment_results_list, file.path(output_directory, "alignment_results_list.rds"))
+#'
+#' # Save matrices to files
+#' write.table(score_matrix, file.path(output_directory, "score_matrix.txt"), sep = "\t")
+#' average_percent_similarity <- compute_average_similarity_matrix(percent_similarity_matrix)
+#' print(average_percent_similarity)
+#'
+#' output_directory <- tempdir()
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' clustering_result <- clustering_percent_similarity(percent_similarity_matrix)
+#'
+#' # Extract the dendrogram and clustered data
+#' dend_colored <- clustering_result$dendrogram
+#' clustered_data <- clustering_result$clustered_data
+#' Cluster_SampleID_Percentage <- clustering_result$Cluster_SampleID_Percentage
+#' Cluster_TotalPercentage <- clustering_result$Cluster_TotalPercentage
+#'
+#' tiff_file <- file.path(output_directory, "6. hierarchical_clustering_dendrogram_colored.tiff")
+#'
+#' # Save the dendrogram as a TIFF image
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#' plot(dend_colored, main = "Colored Hierarchical Clustering Dendrogram")
+#' dev.off()
+#'
+#' # Save the clustered data frame to a CSV file
+#' write.csv(clustered_data, file.path(output_directory, "7. clustered_data.csv"), row.names = FALSE)
+#'
+#' # Example usage with percent_similarity_matrix
+#' result <- tree_percent_similarity(percent_similarity_matrix)
+#' tree <- result$tree
+#' color_palette <- result$color_palette
+#'
+#' tree_newick <- file.path(output_directory, "phylogenetic_tree_nj.nwk")
+#'
+#' # Save the phylogenetic tree as a Newick file
+#' # ape::write.tree(tree, file = tree_newick)
+#'
+#' # Save the phylogenetic tree as a TIFF image
+#' width_inch <- 8
+#' height_inch <- 6
+#' dpi <- 300
+#'
+#' # Set the file name for the TIFF image
+#' tiff_file <- file.path(output_directory, "phylogenetic_tree.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Plot the phylogenetic tree vertically
+#' plot(tree, main = "Neighbor-Joining Tree", cex = 1, direction = "downward")
+#'
+#' # Close the TIFF device
+#' dev.off()
+#'
+#' # Set the file name for the TIFF image with rainbow-colored branches
+#' tiff_file_rainbow <- file.path(output_directory, "phylogenetic_tree_rainbow.tiff")
+#'
+#' # Open the TIFF device
+#' tiff(tiff_file_rainbow, width = width_inch, height = height_inch, units = "in", res = dpi)
+#'
+#' # Plot the phylogenetic tree vertically with rainbow-colored branches
+#' plot(tree, main = "NJ Tree", cex = 1, direction = "downward", tip.color = color_palette)
+#'
+#' # Close the TIFF device
+#' dev.off()
+#' }
+#' @rdname O.tree_percent_similarity
+#' @order 15
+tree_percent_similarity <- function(percent_similarity_matrix) {
+  # Create a copy of the original matrix
+  complete_percent_similarity <- as.matrix(percent_similarity_matrix)
+
+  # Assuming percent_similarity_matrix is your original matrix
+  complete_percent_similarity[upper.tri(complete_percent_similarity)] <-
+    t(complete_percent_similarity)[upper.tri(complete_percent_similarity)]
+
+  # Set all diagonal elements to 1
+  diag(complete_percent_similarity) <- 1
+
+  # Create neighbor-joining tree
+  tree <- nj(dist(as.matrix(1 - complete_percent_similarity)))
+
+  # Generate a color palette based on the number of tips in the tree
+  num_tips <- length(tree$tip.label)
+  color_palette <- rainbow(num_tips)
+
+  # Return the tree and color palette
+  return(list(tree = tree, color_palette = color_palette))
+}

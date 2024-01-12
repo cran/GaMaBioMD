@@ -1,7 +1,7 @@
 Package: GaMaBioMD
 Type: Package
 Title: Diversity Analysis for Sequence Data
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(person("Sandip", "Garai", role = c("aut","cre"), email = "sandipnicksandy@gmail.com"),
     person("Shrikant", "Mantri", role = "aut", email = "bioinfoman3@gmail.com"))
 Author: Sandip Garai [aut, cre],
@@ -12,8 +12,8 @@ License: GPL-3
 Encoding: UTF-8
 RoxygenNote: 7.2.3
 Imports: traits, dplyr, magrittr, ggplot2, Biostrings, heatmaply,
-        reshape2, dendextend, stats
+        reshape2, dendextend, stats, ape
 NeedsCompilation: no
-Packaged: 2024-01-11 18:02:40 UTC; user
+Packaged: 2024-01-12 13:38:56 UTC; user
 Repository: CRAN
-Date/Publication: 2024-01-12 09:20:06 UTC
+Date/Publication: 2024-01-12 14:40:02 UTC
